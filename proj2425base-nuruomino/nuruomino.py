@@ -13,28 +13,15 @@ from utils import *  # Importamos todas as funções disponíveis em utils.py
 class NuruominoState:
     state_id = 0
 
-    def __init__(self, board, filled_grid=None, placed_pieces=None):
+    def __init__(self, board):
         self.board = board  # Board original com regiões
         self.id = NuruominoState.state_id
         NuruominoState.state_id += 1
-        
-        # Grid com as peças colocadas (None = vazio, 'L'/'I'/'T'/'S' = peça)
-        if filled_grid is None:
-            self.filled_grid = [[None for _ in range(board.cols)] for _ in range(board.rows)]
-        else:
-            self.filled_grid = [row[:] for row in filled_grid]  # Deep copy
-        
-        # Dicionário das peças colocadas por região {region_id: tetromino_type}
-        self.placed_pieces = placed_pieces.copy() if placed_pieces else {}
 
     def __lt__(self, other):
         """ Este método é utilizado em caso de empate na gestão da lista
         de abertos nas procuras informadas. """
         return self.id < other.id
-    
-    def clone(self):
-        """Cria uma cópia profunda do estado."""
-        return NuruominoState(self.board, self.filled_grid, self.placed_pieces)
 
 class Board:
     """Representação interna de um tabuleiro do Puzzle Nuruomino."""
@@ -46,25 +33,59 @@ class Board:
         self.cols = len(grid[0]) if grid else 0
         # Criar um mapeamento de regiões para posições
         self.regions = {}
+        
+        # Armazenamento de dados de estado que antes estavam no NuruominoState
+        self.states_filled_grid = {}   # Mapeamento de estados para suas grades preenchidas
+        self.states_placed_pieces = {} # Mapeamento de estados para peças colocadas por região
+        
         for row in range(self.rows):
             for col in range(self.cols):
                 region = self.grid[row][col]
                 if region not in self.regions:
                     self.regions[region] = []
                 self.regions[region].append((row, col))
+
+    def initialize_state(self, state):
+        """Inicializa as estruturas de dados para um estado."""
+        if state.id not in self.states_filled_grid:
+            self.states_filled_grid[state.id] = [[None for _ in range(self.cols)] for _ in range(self.rows)]
+            self.states_placed_pieces[state.id] = {}
+        return state
     
     def is_position_filled(self, state, row, col):
         """Verifica se uma posição está preenchida."""
-        return state.filled_grid[row][col] is not None
+        self.initialize_state(state)
+        return self.states_filled_grid[state.id][row][col] is not None
     
     def get_filled_positions(self, state):
         """Retorna todas as posições preenchidas."""
+        self.initialize_state(state)
         filled = []
         for row in range(self.rows):
             for col in range(self.cols):
                 if self.is_position_filled(state, row, col):
                     filled.append((row, col))
         return filled
+        
+    def get_filled_grid(self, state):
+        """Retorna a grade preenchida para o estado."""
+        self.initialize_state(state)
+        return self.states_filled_grid[state.id]
+        
+    def get_placed_pieces(self, state):
+        """Retorna as peças colocadas para o estado."""
+        self.initialize_state(state)
+        return self.states_placed_pieces[state.id]
+        
+    def set_filled_position(self, state, row, col, value):
+        """Define um valor para uma posição na grade."""
+        self.initialize_state(state)
+        self.states_filled_grid[state.id][row][col] = value
+        
+    def set_placed_piece(self, state, region_id, piece_type):
+        """Define uma peça colocada em uma região."""
+        self.initialize_state(state)
+        self.states_placed_pieces[state.id][region_id] = piece_type
 
     def get_state_value(self, state, row: int, col: int):
         """Retorna o valor numa determinada posição, considerando peças colocadas."""
@@ -74,12 +95,12 @@ class Board:
         if 0 <= adj_row < self.rows and 0 <= adj_col < self.cols:
             # Se há uma peça colocada nesta posição, retornar o tipo da peça
             if self.is_position_filled(state, adj_row, adj_col):
-                return state.filled_grid[adj_row][adj_col]
+                return self.states_filled_grid[state.id][adj_row][adj_col]
             else:
                 # Se não há peça, retornar o valor original da região
                 return self.grid[adj_row][adj_col]
         return None
-    
+        
     def get_state_adjacent_values(self, state, row: int, col: int) -> list:
         """Retorna os valores das células adjacentes à posição, considerando peças colocadas."""
         values = []
@@ -90,25 +111,26 @@ class Board:
         for pos_row, pos_col in self.adjacent_positions(adj_row, adj_col):
             # Se a posição tem uma peça colocada, retornar o tipo da peça
             if self.is_position_filled(state, pos_row, pos_col):
-                values.append(state.filled_grid[pos_row][pos_col])
+                values.append(self.states_filled_grid[state.id][pos_row][pos_col])
             else:
                 # Se não tem peça, retornar o valor original da região
                 values.append(self.grid[pos_row][pos_col])
-        
+                
         return values
-
+    
     def print_state_board(self, state):
         """Imprime o tabuleiro atual mostrando as peças colocadas."""
+        self.initialize_state(state)
         print("Board atual com peças colocadas:")
         for row in range(self.rows):
             for col in range(self.cols):
                 if self.is_position_filled(state, row, col):
                     # Mostrar o tipo da peça (L, I, T, S)
-                    print(state.filled_grid[row][col], end='\t')
+                    print(self.states_filled_grid[state.id][row][col], end='\t')
                 else:
                     # Mostrar o número da região original
                     print(self.grid[row][col], end='\t')
-            print()  # Nova linha no final de cada row
+            print()  # Nova linhano final de cada row
         print()  # Linha em branco no final
     
     def get_value(self, row: int, col: int):
@@ -182,7 +204,6 @@ class Board:
             > line = stdin.readline().split()
         """
         grid = []
-        
         # Ler todas as linhas do stdin
         try:
             while True:
@@ -368,9 +389,9 @@ class Nuruomino(Problem):
             for dr, dc in orientations:
                 adj_row, adj_col = row + dr, col + dc
                 if (self.board.is_valid_position(adj_row, adj_col) and 
-                   self.board.is_position_filled(state, adj_row, adj_col)):
+                    self.board.is_position_filled(state, adj_row, adj_col)):
                     # Verificar se é uma peça do mesmo tipo
-                    if state.filled_grid[adj_row][adj_col] == tetromino_type:
+                    if self.board.get_filled_grid(state)[adj_row][adj_col] == tetromino_type:
                         return True
         
         return False
@@ -404,9 +425,10 @@ class Nuruomino(Problem):
     def _get_available_regions(self, state):
         """Retorna regiões ainda não preenchidas, ordenadas por MRV."""
         available_regions = []
+        placed_pieces = self.board.get_placed_pieces(state)
         
         for region in self.board.get_all_regions():
-            if region not in state.placed_pieces:
+            if region not in placed_pieces:
                 # Contar quantas formas podem ser colocadas nesta região
                 possible_placements = 0
                 
@@ -470,15 +492,15 @@ class Nuruomino(Problem):
         else:
             raise ValueError(f"Formato de ação inválido: {action}")
         
-        # Clonar o estado atual
-        new_state = state.clone()
+        # Criar novo estado, reutilizando o mesmo objeto board
+        new_state = NuruominoState(self.board)
         
         # Colocar a peça nas posições especificadas
         for row, col in positions:
-            new_state.filled_grid[row][col] = tetromino_type
+            self.board.set_filled_position(new_state, row, col, tetromino_type)
         
         # Marcar a região como preenchida
-        new_state.placed_pieces[region] = tetromino_type
+        self.board.set_placed_piece(new_state, region, tetromino_type)
         
         return new_state
         
@@ -486,7 +508,8 @@ class Nuruomino(Problem):
         """Retorna True se e só se o estado passado como argumento é
         um estado objetivo."""
         # Verificar se todas as regiões estão preenchidas
-        if len(state.placed_pieces) != len(self.board.get_all_regions()):
+        placed_pieces = self.board.get_placed_pieces(state)
+        if len(placed_pieces) != len(self.board.get_all_regions()):
             return False
         
         # Verificar se não há blocos 2x2
@@ -505,10 +528,11 @@ class Nuruomino(Problem):
             return False
         
         # Verificar se não há peças iguais adjacentes
+        filled_grid = self.board.get_filled_grid(state)
         for row in range(self.board.rows):
             for col in range(self.board.cols):
                 if self.board.is_position_filled(state, row, col):
-                    piece_type = state.filled_grid[row][col]
+                    piece_type = filled_grid[row][col]
                     
                     # Usando orientations (EAST, NORTH, WEST, SOUTH) do utils.py
                     for dr, dc in orientations:
@@ -516,7 +540,7 @@ class Nuruomino(Problem):
                         
                         if (self.board.is_valid_position(adj_row, adj_col) and
                             self.board.is_position_filled(state, adj_row, adj_col) and
-                            state.filled_grid[adj_row][adj_col] == piece_type):
+                            filled_grid[adj_row][adj_col] == piece_type):
                             return False
         
         return True
@@ -527,8 +551,9 @@ class Nuruomino(Problem):
         h_value = 0
         
         # Heurística baseada no número de opções para regiões não preenchidas
+        placed_pieces = self.board.get_placed_pieces(state)
         for region in self.board.get_all_regions():
-            if region not in state.placed_pieces:
+            if region not in placed_pieces:
                 possible_placements = 0
                 
                 for tetromino_type, variants in ALL_TETROMINO_VARIANTS.items():
@@ -550,9 +575,16 @@ class Nuruomino(Problem):
         
         # Penalização por regiões com poucas células (mais difíceis de preencher)
         for region in self.board.get_all_regions():
-            if region not in state.placed_pieces:
+            if region not in placed_pieces:
                 region_size = self.board.get_region_size(region)
                 if region_size == 4:  # Tamanho mínimo, mais restritivo
                     h_value += 0.5
         
         return h_value
+
+if __name__ == "__main__":
+    # Ler e inicializar o tabuleiro
+    board = Board.parse_instance()
+    
+    # Inicializar o problema
+    problem = Nuruomino(board)
