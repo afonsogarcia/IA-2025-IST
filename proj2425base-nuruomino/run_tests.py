@@ -13,7 +13,7 @@ def run_single_test(test_name):
     """Run a single test and compare with expected output"""
     # Try to find test input in both locations
     test_input_sample = f"..\\sample-nuruominoboards\\{test_name}.txt"
-    test_input_public = f"..\\..\\public\\{test_name}.txt"
+    test_input_public = f"..\\public\\{test_name}.txt"
     
     test_input = None
     if os.path.exists(test_input_sample):
@@ -22,8 +22,8 @@ def run_single_test(test_name):
         expected_output = f"..\\sample-nuruominoboards\\{test_name}.out"
     elif os.path.exists(test_input_public):
         test_input = test_input_public
-        expected_output_txt = f"..\\..\\public\\{test_name}.out.txt"
-        expected_output = f"..\\..\\public\\{test_name}.out"
+        expected_output_txt = f"..\\public\\{test_name}.out.txt"
+        expected_output = f"..\\public\\{test_name}.out"
     else:
         print(f"❌ Input file not found: {test_name}.txt")
         return False
@@ -108,10 +108,9 @@ def main():
     
     # Change to the correct directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(script_dir)
-      # Find all test files in both locations
+    os.chdir(script_dir)      # Find all test files in both locations
     sample_dir = "../sample-nuruominoboards"
-    public_dir = "../../public"
+    public_dir = "../public"
     
     test_files = []
     test_files.extend(glob.glob(f"{sample_dir}/test*.txt"))
