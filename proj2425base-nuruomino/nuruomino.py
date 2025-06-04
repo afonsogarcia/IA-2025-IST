@@ -1,11 +1,11 @@
 # nuruomino_optimized.py: Versão otimizada baseada nas boas práticas do pipe.py
 # Devem alterar as classes e funções neste ficheiro de acordo com as instruções do enunciado.
 
-# Grupo 00:
-# 00000 Nome1
-# 00000 Nome2
+# Grupo 17:
+# 96883 Jose Afonso Garcia
+# 96914 Tomas Antunes
 
-from search import Problem, Node, greedy_search
+from search import Problem, Node, astar_search, greedy_search
 from sys import stdin
 from copy import deepcopy
 from utils import *
@@ -395,7 +395,7 @@ def solve_nuruomino():
     problem = Nuruomino(board)
     
     # Resolver usando greedy_search (como no pipe.py)
-    solution = greedy_search(problem)
+    solution = astar_search(problem)
     
     if solution:
         solution.state.board.print_board()
