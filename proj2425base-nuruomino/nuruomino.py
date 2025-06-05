@@ -403,22 +403,29 @@ class Nuruomino(Problem):
         
         if not available_regions:
             return actions
-            
-        # MRV: focar na região com menos opções
-        target_region, num_options = available_regions[0]
         
-        # Se nenhuma opção disponível, retornar lista vazia (estado inválido)
-        if num_options == 0:
-            return actions
-            
-        # Tentar todas as peças e variantes para esta região
-        for tetromino_type, variants in ALL_TETROMINO_VARIANTS.items():
-            for variant in variants:
-                placement = board.can_place_shape_in_region(target_region, variant, tetromino_type)
-                if placement:
-                    action = (target_region, tetromino_type, placement)
-                    actions.append(action)
-                    
+        # Generate actions for multiple regions, prioritizing MRV
+        # Start with most constrained, but allow others too
+        regions_to_try = []
+        
+        # Always include the most constrained region
+        most_constrained = available_regions[0]
+        regions_to_try.append(most_constrained[0])
+        
+        # Add other regions with same constraint level
+        for region, num_options in available_regions[1:3]:  # Try up to 3 regions
+            if num_options <= most_constrained[1] + 1:  # Similar constraint level
+                regions_to_try.append(region)
+        
+        # Generate actions for selected regions
+        for region in regions_to_try:
+            for tetromino_type, variants in ALL_TETROMINO_VARIANTS.items():
+                for variant in variants:
+                    placement = board.can_place_shape_in_region(region, variant, tetromino_type)
+                    if placement:
+                        action = (region, tetromino_type, placement)
+                        actions.append(action)
+                        
         return actions
 
     def result(self, state: NuruominoState, action):
