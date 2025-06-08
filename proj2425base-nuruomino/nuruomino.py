@@ -16,7 +16,7 @@ try:
     from live_visualizer import LiveVisualizer
     import matplotlib
     matplotlib.use('TkAgg')  # Backend interativo para visualização em tempo real
-    VISUALIZATION_AVAILABLE = False
+    VISUALIZATION_AVAILABLE = True
 except ImportError:
     VISUALIZATION_AVAILABLE = False
 
@@ -427,11 +427,77 @@ class Nuruomino(Problem):
         super().__init__(state)        # Configuração de visualização
         self.enable_visualization = enable_visualization and VISUALIZATION_AVAILABLE
         if self.enable_visualization:
-            self.live_visualizer = LiveVisualizer(initial_state, delay=0.01, save_steps=True)
+            self.live_visualizer = LiveVisualizer(initial_state, delay=0.0001, save_steps=True)
             self.live_visualizer.show_step(initial_state, None)  # Mostrar estado inicial
+
+    def _evaluate_connectivity(self, board, new_positions):
+        """Avalia o quanto uma ação melhora a conectividade."""
+        score = 0
+        filled = set(board.get_filled_positions())
+        
+        # Se não há peças anteriores, priorizar posições centrais do tabuleiro
+        if not filled:
+            center_row, center_col = board.rows // 2, board.cols // 2
+            dist_from_center = sum(abs(r - center_row) + abs(c - center_col) 
+                                for r, c in new_positions) / len(new_positions)
+            return 10 - min(dist_from_center, 10)  # Maior score para posições mais centrais
+            
+        # Contar conexões ortogonais com peças existentes
+        connections = 0
+        for row, col in new_positions:
+            for dr, dc in orientations:  # Apenas direções ortogonais
+                adj_row, adj_col = row + dr, col + dc
+                if (adj_row, adj_col) in filled:
+                    connections += 1
+        
+        # Dar pontuação exponencial para mais conexões
+        if connections > 0:
+            score += connections * 2  # Cada conexão vale 2 pontos
+        
+        # Verificar se a colocação reduziria o número de componentes
+        temp_board = board.copy()
+        for r, c in new_positions:
+            temp_board.filled_grid[r][c] = 'X'  # Valor temporário
+        
+        current_components = self._count_connected_components(board)
+        new_components = self._count_connected_components(temp_board)
+        
+        # Dar grande bônus para ações que reduzem o número de componentes
+        if current_components > 1 and new_components < current_components:
+            score += 10  # Bônus substancial por unir componentes
+        
+        return score
+
+    def _count_connected_components(self, board):
+        """Conta o número de componentes conectados no tabuleiro."""
+        filled_positions = set(board.get_filled_positions())
+        
+        if not filled_positions:
+            return 0
+            
+        unvisited = filled_positions.copy()
+        components_count = 0
+        
+        # Para cada componente conectado, faça uma BFS
+        while unvisited:
+            components_count += 1
+            start = next(iter(unvisited))
+            queue = [start]
+            unvisited.remove(start)
+            
+            # BFS para encontrar todas as células conectadas a este componente
+            while queue:
+                row, col = queue.pop(0)
+                for dr, dc in orientations:
+                    adj_row, adj_col = row + dr, col + dc
+                    if (adj_row, adj_col) in unvisited:
+                        unvisited.remove((adj_row, adj_col))
+                        queue.append((adj_row, adj_col))
+        
+        return components_count
         
     def actions(self, state: NuruominoState):
-        """Optimized action generation with MRV and simplified forward checking."""
+        """Optimized action generation with MRV and connectivity prioritization."""
         board = state.board
         best_region = None
         best_actions = None
@@ -452,7 +518,7 @@ class Nuruomino(Problem):
                         shape_abs = [(origin[0] + dx, origin[1] + dy) for dx, dy in shape]
                         
                         if all(pos in region_positions and not board.is_position_filled(pos[0], pos[1]) 
-                                for pos in shape_abs):
+                            for pos in shape_abs):
                             
                             if (not board.would_create_adjacent_same_pieces(shape_abs, piece_letter) and 
                                 not board.would_create_2x2_block(shape_abs)):
@@ -460,7 +526,18 @@ class Nuruomino(Problem):
                                 valid_action = True 
                                 
                                 if valid_action:
-                                    actions_for_region.append((region_id, piece_letter, shape, index, shape_abs))
+                                    # Avaliar conectividade desta ação
+                                    connectivity_score = self._evaluate_connectivity(board, shape_abs)
+                                    
+                                    # Adicionar ação com sua pontuação de conectividade
+                                    actions_for_region.append((region_id, piece_letter, shape, index, shape_abs, connectivity_score))
+            
+            if actions_for_region:
+                # Ordenar ações por conectividade (maior pontuação primeiro)
+                actions_for_region.sort(key=lambda x: x[5], reverse=True)
+                
+                # Remover a pontuação de conectividade para compatibilidade com o resto do código
+                actions_for_region = [(a, b, c, d, e) for a, b, c, d, e, _ in actions_for_region]
             
             if 0 < len(actions_for_region) <= 1:
                 return actions_for_region
@@ -469,7 +546,8 @@ class Nuruomino(Problem):
                 min_actions = len(actions_for_region)
                 best_actions = actions_for_region
                 
-                if min_actions <= 3:                break 
+                if min_actions <= 3:
+                    break 
         
         return best_actions if best_actions else []
     
@@ -506,15 +584,28 @@ class Nuruomino(Problem):
         return True
         
     def h(self, node: Node):
-        """Função heuristica utilizada para a procura A*."""
         board = node.state.board
         unplaced = len(board.get_all_regions()) - len(board.placed_pieces)
+        
+        # Penalização mais forte por falta de conectividade
+        filled_positions = board.get_filled_positions()
+        connectivity_penalty = 0
+        if filled_positions and len(filled_positions) > 1:
+            # Calcular componentes conectados
+            components = self._count_connected_components(board)
+            if components > 1:
+                # Penalizar mais fortemente estados com múltiplos componentes
+                connectivity_penalty = (components - 1) * 1.5  # Aumentado de 0.5 para 1.5
+        
+        h_val = unplaced + connectivity_penalty
+        
+        # Ajuste original
         available = board.get_available_regions_mrv()
         counts = [opt for _, opt in available]
-        h_val = unplaced
         if counts:
             most_freq = mode(counts)     
-            h_val += most_freq * 0.01     
+            h_val += most_freq * 0.01
+            
         return h_val
 
 
