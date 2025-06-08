@@ -11,6 +11,15 @@ from sys import stdin
 from copy import deepcopy
 from utils import *
 
+# Importação opcional para visualização
+try:
+    from live_visualizer import LiveVisualizer
+    import matplotlib
+    matplotlib.use('TkAgg')  # Backend interativo para visualização em tempo real
+    VISUALIZATION_AVAILABLE = False
+except ImportError:
+    VISUALIZATION_AVAILABLE = False
+
 class Region:
     """Classe para cachear informações sobre uma região específica."""
     
@@ -412,10 +421,14 @@ ALL_TETROMINO_VARIANTS = {
 class Nuruomino(Problem):
     """Classe principal do problema NURUOMINO - versão otimizada."""
     
-    def __init__(self, initial_state: Board):
+    def __init__(self, initial_state: Board, enable_visualization=False):
         """O construtor especifica o estado inicial."""
         state = NuruominoState(initial_state)
-        super().__init__(state)
+        super().__init__(state)        # Configuração de visualização
+        self.enable_visualization = enable_visualization and VISUALIZATION_AVAILABLE
+        if self.enable_visualization:
+            self.live_visualizer = LiveVisualizer(initial_state, delay=0.01, save_steps=True)
+            self.live_visualizer.show_step(initial_state, None)  # Mostrar estado inicial
         
     def actions(self, state: NuruominoState):
         """Optimized action generation with MRV and simplified forward checking."""
@@ -423,7 +436,6 @@ class Nuruomino(Problem):
         best_region = None
         best_actions = None
         min_actions = float('inf')
-
 
         available_regions = board.get_available_regions_mrv()
         
@@ -439,48 +451,42 @@ class Nuruomino(Problem):
                     for origin in region_positions:
                         shape_abs = [(origin[0] + dx, origin[1] + dy) for dx, dy in shape]
                         
-
                         if all(pos in region_positions and not board.is_position_filled(pos[0], pos[1]) 
                                 for pos in shape_abs):
                             
-
                             if (not board.would_create_adjacent_same_pieces(shape_abs, piece_letter) and 
                                 not board.would_create_2x2_block(shape_abs)):
-                                
                                 
                                 valid_action = True 
                                 
                                 if valid_action:
                                     actions_for_region.append((region_id, piece_letter, shape, index, shape_abs))
             
-            
             if 0 < len(actions_for_region) <= 1:
                 return actions_for_region
-            
             
             if 0 < len(actions_for_region) < min_actions:
                 min_actions = len(actions_for_region)
                 best_actions = actions_for_region
                 
-                
-                if min_actions <= 3:
-                    break 
+                if min_actions <= 3:                break 
         
         return best_actions if best_actions else []
     
     def result(self, state: NuruominoState, action):
         """Retorna o estado resultante de executar a 'action'."""
         region_id, piece_letter, shape, index, shape_abs = action
-
         
         new_board = state.board.copy()
-        
         
         for i, j in shape_abs:
             new_board.filled_grid[i][j] = piece_letter
         
-        
         new_board.placed_pieces[region_id] = piece_letter
+        
+        # Adicionar passo à visualização se habilitada
+        if hasattr(self, 'enable_visualization') and self.enable_visualization:
+            self.live_visualizer.show_step(new_board, action)
         
         return NuruominoState(new_board)
 
@@ -513,14 +519,68 @@ class Nuruomino(Problem):
 
 
 
-def solve_nuruomino():
+def solve_nuruomino(enable_visualization=False):
     """resolve o problema nuruomino"""
     board = Board.parse_instance()
-    problem = Nuruomino(board)
+    problem = Nuruomino(board, enable_visualization)
     
     solution = astar_search(problem)
     
-    if solution:
+    if solution and VISUALIZATION_AVAILABLE:
+        solution.state.board.print_board()
+          # Mostrar visualização se habilitada
+        if enable_visualization and hasattr(problem, 'visualizer') and hasattr(problem, 'steps'):
+            print(f"\nVisualizando evolução da solução... {len(problem.steps)} passos")
+            
+            # Salvar todas as imagens dos passos
+            import os
+            if not os.path.exists("evolution_images"):
+                os.makedirs("evolution_images")
+            
+            for i, board_step in enumerate(problem.steps):
+                filename = f"evolution_images/step_{i:03d}.png"
+                
+                # Criar imagem para este passo
+                rows, cols = board_step.rows, board_step.cols
+                import matplotlib.pyplot as plt
+                fig, ax = plt.subplots(figsize=(cols * 0.8, rows * 0.8))
+                
+                colors = {'L': '#FF6B6B', 'I': '#4ECDC4', 'T': '#45B7D1', 'S': '#96CEB4'}
+                
+                for row in range(rows):
+                    for col in range(cols):
+                        if board_step.is_position_filled(row, col):
+                            piece = board_step.get_filled_value(row, col)
+                            color = colors.get(piece, '#DDDDDD')
+                            text_color = 'white'
+                            text = piece
+                        else:
+                            color = '#E0E0E0'
+                            text_color = 'black'
+                            text = str(board_step.get_value(row, col))
+                        
+                        rect = plt.Rectangle((col, rows - row - 1), 1, 1,
+                                           linewidth=2, edgecolor='black',
+                                           facecolor=color)
+                        ax.add_patch(rect)
+                        ax.text(col + 0.5, rows - row - 0.5, text,
+                               ha='center', va='center', fontsize=12,
+                               color=text_color, weight='bold')
+                
+                ax.set_xlim(0, cols)
+                ax.set_ylim(0, rows)
+                ax.set_aspect('equal')
+                ax.axis('off')
+                ax.set_title(f'Passo {i+1}/{len(problem.steps)} - Peças: {len(board_step.placed_pieces)}/{len(board_step.get_all_regions())}',
+                            fontsize=14, pad=20)
+                
+                plt.tight_layout()
+                plt.savefig(filename, dpi=150, bbox_inches='tight')
+                plt.close()
+                
+            print(f"Imagens salvas em 'evolution_images/' (passos 1-{len(problem.steps)})")
+            print("Solução final salva como evolution_images/step_{:03d}.png".format(len(problem.steps)-1))
+    elif solution:
         solution.state.board.print_board()
     else:
         print("Nenhuma Solução Encontrada")
