@@ -1,5 +1,5 @@
 ﻿# 🧩 Projeto NURUOMINO - Inteligência Artificial 2024/25
-**Nota- 17.33**
+**Nota- 17.33/20**
 
 José Afonso Garcia
 
